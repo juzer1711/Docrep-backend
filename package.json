@@ -1,0 +1,32 @@
+{
+  "name": "docrep-backend",
+  "version": "1.0.0",
+  "description": "In this repository, you will find the Docrep backend. This application functions as a document reception system designed to digitize the receipt of goods and invoices within a warehouse management workflow.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+      "start": "node src/server.js",
+  "dev": "nodemon src/server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/juzer1711/Docrep-backend.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/juzer1711/Docrep-backend/issues"
+  },
+  "homepage": "https://github.com/juzer1711/Docrep-backend#readme",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "multer": "^2.3.0",
+    "oracledb": "^7.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}
