@@ -6,11 +6,17 @@ const {
   listarFacturas,
   detalleFactura,
   revisarFactura,
+  registrarNovedad,
+  entregarAdmin,
+  finalizarFactura,
 } = require('../controllers/facturasController');
 
 router.post('/', upload.single('foto'), crearFactura);
+router.post('/:id/novedades', upload.single('foto_evidencia'), registrarNovedad);
 router.get('/', listarFacturas);
 router.get('/:id', detalleFactura);
 router.put('/:id/revisar', revisarFactura);
+router.put('/:id/entregar-admin', entregarAdmin);
+router.put('/:id/finalizar', finalizarFactura);
 
 module.exports = router;
