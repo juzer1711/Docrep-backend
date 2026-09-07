@@ -69,7 +69,8 @@ exports.listarFacturas = asyncHandler(async (req, res) => {
       `SELECT id_factura, numero_factura, proveedor, url_foto, estado,
               id_usuario_recepcion, fecha_recepcion,
               id_usuario_revision, fecha_revision,
-              id_usuario_admin, fecha_entrega_admin
+              id_usuario_admin, fecha_entrega_admin,
+              observaciones
          FROM facturas
         ORDER BY fecha_recepcion DESC`
     );
@@ -81,7 +82,7 @@ exports.listarFacturas = asyncHandler(async (req, res) => {
 });
 
 // GET /api/facturas/:id
-// Retorna la factura + firmas de custodia (todas las etapas) + novedades registradas
+// Retorna la factura + firmas de custodia + novedades registradas
 exports.detalleFactura = asyncHandler(async (req, res) => {
   const { id } = req.params;
   let connection;
@@ -89,7 +90,13 @@ exports.detalleFactura = asyncHandler(async (req, res) => {
     connection = await getConnection();
 
     const facturaResult = await connection.execute(
-      `SELECT * FROM facturas WHERE id_factura = :id`,
+      `SELECT id_factura, numero_factura, proveedor, url_foto, estado,
+              id_usuario_recepcion, fecha_recepcion,
+              id_usuario_revision, fecha_revision,
+              id_usuario_admin, fecha_entrega_admin,
+              observaciones
+         FROM facturas 
+        WHERE id_factura = :id`,
       { id: Number(id) }
     );
 
@@ -117,7 +124,7 @@ exports.detalleFactura = asyncHandler(async (req, res) => {
     res.json({
       ok: true,
       factura: facturaResult.rows[0],
-      firmas: firmasResult.rows,       // no se trae firma_base64 completo (CLOB) por tamaño
+      firmas: firmasResult.rows,
       novedades: novedadesResult.rows,
     });
   } finally {
@@ -165,9 +172,39 @@ exports.revisarFactura = asyncHandler(async (req, res) => {
   }
 });
 
+// PUT /api/facturas/:id/novedad
+// body: { observacion }
+exports.marcarNovedadFactura = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { observacion } = req.body;
+
+  let connection;
+  try {
+    connection = await getConnection();
+
+    await connection.execute(
+      `BEGIN
+         pkg_recepciones.sp_marcar_novedad_factura(
+           p_id_factura  => :p_id_factura,
+           p_observacion => :p_observacion
+         );
+       END;`,
+      {
+        p_id_factura: Number(id),
+        p_observacion: observacion || 'Novedad registrada en la factura',
+      }
+    );
+
+    await connection.commit();
+
+    res.json({ ok: true, mensaje: 'Factura marcada como CON_NOVEDAD correctamente' });
+  } finally {
+    if (connection) await connection.close();
+  }
+});
+
 // PUT /api/facturas/:id/entregar-admin
 // body: { id_usuario, firma_base64 }
-// Requiere que la factura esté en estado EN_REVISION (validado en el SP)
 exports.entregarAdmin = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { id_usuario, firma_base64 } = req.body;
@@ -218,7 +255,7 @@ exports.registrarNovedad = asyncHandler(async (req, res) => {
     cantidad,
     observaciones,
   } = req.body;
-  const fotoFile = req.file; // puede ser undefined, la evidencia es opcional
+  const fotoFile = req.file;
 
   const tiposValidos = ['INCOMPLETO', 'AVERIADO', 'EXCEDENTE'];
 
@@ -278,7 +315,7 @@ exports.registrarNovedad = asyncHandler(async (req, res) => {
 });
 
 // PUT /api/facturas/:id/finalizar
-// Marca la factura como FINALIZADA (Requiere que esté en ENTREGADA_ADMIN)
+// Marca la factura como FINALIZADA
 exports.finalizarFactura = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
