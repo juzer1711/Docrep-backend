@@ -61,18 +61,112 @@ exports.crearFactura = asyncHandler(async (req, res) => {
 
 // GET /api/facturas
 exports.listarFacturas = asyncHandler(async (req, res) => {
+  const estadosValidos = new Set([
+    'RECIBIDA',
+    'EN_REVISION',
+    'CON_NOVEDAD',
+    'ENTREGADA_ADMIN',
+    'FINALIZADA',
+  ]);
+  const novedadesValidas = new Set(['con', 'sin']);
+  const { buscar, estado, fecha_desde, fecha_hasta, novedades } = req.query;
+
+  const parametroUnico = (valor) =>
+    typeof valor === 'string' || valor === undefined;
+  const fechaValida = (fecha) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return false;
+    const [anio, mes, dia] = fecha.split('-').map(Number);
+    const fechaUtc = new Date(Date.UTC(anio, mes - 1, dia));
+    return (
+      fechaUtc.getUTCFullYear() === anio &&
+      fechaUtc.getUTCMonth() === mes - 1 &&
+      fechaUtc.getUTCDate() === dia
+    );
+  };
+
+  if (![buscar, estado, fecha_desde, fecha_hasta, novedades].every(parametroUnico)) {
+    return res.status(400).json({ ok: false, error: 'Los filtros deben tener un único valor.' });
+  }
+
+  const estadoNormalizado = estado?.trim().toUpperCase();
+  const novedadesNormalizadas = novedades?.trim().toLowerCase();
+
+  if (estadoNormalizado && !estadosValidos.has(estadoNormalizado)) {
+    return res.status(400).json({ ok: false, error: 'El estado indicado no es válido.' });
+  }
+
+  if (novedadesNormalizadas && !novedadesValidas.has(novedadesNormalizadas)) {
+    return res.status(400).json({ ok: false, error: 'El filtro novedades debe ser "con" o "sin".' });
+  }
+
+  if (fecha_desde && !fechaValida(fecha_desde)) {
+    return res.status(400).json({ ok: false, error: 'fecha_desde debe tener el formato YYYY-MM-DD.' });
+  }
+
+  if (fecha_hasta && !fechaValida(fecha_hasta)) {
+    return res.status(400).json({ ok: false, error: 'fecha_hasta debe tener el formato YYYY-MM-DD.' });
+  }
+
+  if (fecha_desde && fecha_hasta && fecha_desde > fecha_hasta) {
+    return res.status(400).json({ ok: false, error: 'fecha_desde no puede ser posterior a fecha_hasta.' });
+  }
+
+  const condiciones = [];
+  const binds = {};
+
+  if (buscar?.trim()) {
+    condiciones.push(`(
+      LOWER(f.numero_factura) LIKE LOWER(:buscar)
+      OR LOWER(f.proveedor) LIKE LOWER(:buscar)
+      OR TO_CHAR(f.id_factura) LIKE :buscar
+    )`);
+    binds.buscar = `%${buscar.trim()}%`;
+  }
+
+  if (estadoNormalizado) {
+    condiciones.push('f.estado = :estado');
+    binds.estado = estadoNormalizado;
+  }
+
+  if (fecha_desde) {
+    condiciones.push("f.fecha_recepcion >= TO_DATE(:fecha_desde, 'YYYY-MM-DD')");
+    binds.fecha_desde = fecha_desde;
+  }
+
+  if (fecha_hasta) {
+    // El límite superior exclusivo incluye toda la fecha final sin depender de zona horaria.
+    condiciones.push("f.fecha_recepcion < TO_DATE(:fecha_hasta, 'YYYY-MM-DD') + 1");
+    binds.fecha_hasta = fecha_hasta;
+  }
+
+  if (novedadesNormalizadas) {
+    const existeNovedad = `EXISTS (
+      SELECT 1
+        FROM novedades_producto n
+       WHERE n.id_factura = f.id_factura
+    )`;
+    condiciones.push(novedadesNormalizadas === 'con' ? existeNovedad : `NOT ${existeNovedad}`);
+  }
+
   let connection;
   try {
     connection = await getConnection();
 
     const result = await connection.execute(
-      `SELECT id_factura, numero_factura, proveedor, url_foto, estado,
-              id_usuario_recepcion, fecha_recepcion,
-              id_usuario_revision, fecha_revision,
-              id_usuario_admin, fecha_entrega_admin,
-              observaciones
-         FROM facturas
-        ORDER BY fecha_recepcion DESC`
+      `SELECT f.id_factura, f.numero_factura, f.proveedor, f.url_foto, f.estado,
+              f.id_usuario_recepcion, f.fecha_recepcion,
+              f.id_usuario_revision, f.fecha_revision,
+              f.id_usuario_admin, f.fecha_entrega_admin,
+              f.observaciones,
+              (
+                SELECT COUNT(*)
+                  FROM novedades_producto n
+                 WHERE n.id_factura = f.id_factura
+              ) AS total_novedades
+         FROM facturas f
+        ${condiciones.length ? `WHERE ${condiciones.join('\n          AND ')}` : ''}
+        ORDER BY f.fecha_recepcion DESC`,
+      binds
     );
 
     res.json({ ok: true, facturas: result.rows });
